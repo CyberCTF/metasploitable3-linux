@@ -1,0 +1,10 @@
+{
+  "title": "Metasploitable 3 (Linux)",
+  "description": "Rapid7's intentionally vulnerable Ubuntu 14.04 server: backdoored UnrealIRCd, ProFTPD mod_copy, Drupal 7.5, phpMyAdmin, a SQL-injectable payroll app, Apache Continuum, Samba and more, with fifteen hidden card flags.",
+  "question": "Find the card flags hidden on the machine.",
+  "category": "NETWORK",
+  "difficulty": 2,
+  "evidence_kind": "SECRET",
+  "capabilities": ["service-enumeration", "remote-code-execution", "sql-injection", "privilege-escalation", "password-cracking"],
+  "providers": ["virtualbox"]
+}

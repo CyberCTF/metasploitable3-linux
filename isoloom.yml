@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://www.isoloom.com/schema/v1.json
+# Metasploitable 3, Ubuntu 14.04 machine (by Rapid7): an intentionally vulnerable Linux server
+# with a dozen exploitable services and hidden card flags. Source: https://github.com/rapid7/metasploitable3,
+# vendored in metasploitable3/. Built inside the VM by upstream's own Chef cookbooks
+# (provision/build.sh). VM targets only. `isoloom run vagrant`, then `isoloom test vagrant`.
+version: 1
+name: metasploitable3-linux
+
+networks:
+  lab: { cidr: 10.60.80.0/24 }
+
+machines:
+  ub1404:
+    networks: { lab: 10 }
+    services:
+      - { port: 21, name: ftp }
+      - { port: 22, name: ssh }
+      - { port: 80, name: http, http: true }
+      - { port: 445, name: smb }
+      - { port: 631, name: cups }
+      - { port: 3306, name: mysql }
+      - { port: 3500, name: readme-app }
+      - { port: 6697, name: irc }
+      - { port: 8080, name: continuum }
+      - { port: 8181, name: sinatra }
+    resources: { cpus: 2, memory_mb: 3072, disk_gb: 40 }
+    vm:
+      # Ubuntu 14.04 has no built-in OS name in Isoloom; the box is given explicitly.
+      os: ubuntu-20.04
+      image:
+        vagrant: ubuntu/trusty64
+        vagrant_version: "20191107.0.0"
+      provision: [provision/build.sh]
+
+# The machine reboots at the end of its build; the Java and Ruby services take a few minutes.
+checks:
+  - { name: web root answers, http: "http://ub1404/", wait: 600 }
+  - { name: ssh answers, tcp: "ub1404:22" }
+  - { name: proftpd answers, tcp: "ub1404:21", wait: 300 }
+  - { name: samba answers, tcp: "ub1404:445" }
+  - { name: mysql answers, tcp: "ub1404:3306" }
+  - { name: unrealircd answers, tcp: "ub1404:6697", wait: 300 }
+  - { name: continuum answers, tcp: "ub1404:8080", wait: 600 }
+  - { name: readme app answers, tcp: "ub1404:3500", wait: 600 }
+  - { name: sinatra answers, tcp: "ub1404:8181", wait: 600 }
+  - checks/vulnerable-services.sh
+
+message: |
+  Metasploitable 3 (Ubuntu 14.04) is up at {{ machines.ub1404.addresses.lab }}. Scan it: FTP, SSH,
+  HTTP (Drupal, phpMyAdmin, a payroll app), Samba, CUPS, MySQL, UnrealIRCd, Apache Continuum and
+  more answer there. Fifteen card flags are hidden on the machine.
