@@ -5,6 +5,7 @@
   "category": "NETWORK",
   "difficulty": 2,
   "evidence_kind": "SECRET",
-  "capabilities": ["service-enumeration", "remote-code-execution", "sql-injection", "privilege-escalation", "password-cracking"],
-  "providers": ["virtualbox"]
+  "providers": [
+    "virtualbox"
+  ]
 }
