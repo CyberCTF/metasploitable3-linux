@@ -141,7 +141,8 @@
       "cloud-docker": "needs `docker:` on ub1404",
       "kubernetes": "needs `docker:` on ub1404",
       "hybrid": "only when some machines are containers and others are VMs",
-      "external": "needs `external:` on ub1404"
+      "external": "needs `external:` on ub1404",
+      "cloud-services": "left out by `targets:`"
     }
   },
   "checks": {
