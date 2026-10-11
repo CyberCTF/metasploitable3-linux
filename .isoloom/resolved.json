@@ -3,7 +3,9 @@
   "resolved_version": 1,
   "name": "metasploitable3-linux",
   "instance": null,
-  "inputs": [],
+  "inputs": [
+    "CTF_FLAG_MAIN"
+  ],
   "networks": {
     "lab": {
       "cidr": "10.60.80.0/24",
@@ -95,7 +97,9 @@
         }
       ],
       "depends_on": [],
-      "inputs": [],
+      "inputs": [
+        "CTF_FLAG_MAIN"
+      ],
       "volumes": {},
       "resources": {
         "cpus": 2,
@@ -237,5 +241,5 @@
       }
     ]
   },
-  "message": "Metasploitable 3 (Ubuntu 14.04) is up at 10.60.80.10. Scan it: FTP, SSH,\nHTTP (Drupal, phpMyAdmin, a payroll app), Samba, CUPS, MySQL, UnrealIRCd, Apache Continuum and\nmore answer there. Fifteen card flags are hidden on the machine.\n"
+  "message": "Metasploitable 3 (Ubuntu 14.04) is up at 10.60.80.10. Scan it: FTP, SSH,\nHTTP (Drupal, phpMyAdmin, a payroll app), Samba, CUPS, MySQL, UnrealIRCd, Apache Continuum and\nmore answer there. Get root and read /root/flag.txt; fifteen card flags are hidden too.\n"
 }

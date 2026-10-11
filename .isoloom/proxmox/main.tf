@@ -91,6 +91,12 @@ variable "ssh_public_key" {
   default     = ""
   description = "Installed for the user `isoloom` on every VM"
 }
+variable "inputs" {
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+  description = "Values given at launch"
+}
 
 provider "proxmox" {
   endpoint  = var.proxmox_endpoint
@@ -253,9 +259,10 @@ resource "proxmox_virtual_environment_file" "ub1404" {
       hostname    = "ub1404"
       users       = local.users
       packages    = ["nftables", "curl", "netcat-openbsd"]
-      write_files = local.project_files
+      write_files = concat(local.project_files, [{ path = "/etc/isoloom/inputs.env", permissions = "0600", content = join("\n", ["CTF_FLAG_MAIN=${lookup(var.inputs, "CTF_FLAG_MAIN", "")}"]) }])
       runcmd = [
-        ["sh", "-c", "cd /opt/isoloom && sh provision/build.sh"],
+        ["sh", "-c", "cd /opt/isoloom && set -a; . /etc/isoloom/inputs.env; set +a; sh provision/flag.sh"],
+        ["sh", "-c", "cd /opt/isoloom && set -a; . /etc/isoloom/inputs.env; set +a; sh provision/build.sh"],
         ["sh", "-c", "mkdir -p /var/lib/isoloom && echo ready > /var/lib/isoloom/ready"]
       ]
     })}"

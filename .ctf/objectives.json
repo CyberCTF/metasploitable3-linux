@@ -1,0 +1,42 @@
+{
+  "objectives": [
+    {
+      "key": "main",
+      "title": "Root the machine",
+      "prompt": "Get a root shell on the Metasploitable 3 Ubuntu machine and read /root/flag.txt.",
+      "check": { "evidence": "SECRET", "format": "FLAG{%s}" },
+      "dev": "FLAG{dev-metasploitable3-linux}",
+      "hints": [
+        "Start with a full service scan: several services run software versions with well-known public advisories.",
+        "The IRC server and the FTP server both run versions with famous CVEs; the Metasploitable 3 wiki lists the intended vulnerabilities.",
+        "A foothold may land you as an unprivileged user: look for a local privilege escalation path to root."
+      ],
+      "steps": [
+        {
+          "key": "irc",
+          "title": "Fingerprint the IRC server",
+          "prompt": "Which IRC server software answers on port 6697? (name only)",
+          "check": { "answer": ["unrealircd", "unreal ircd", "unreal"] }
+        },
+        {
+          "key": "irc-version",
+          "title": "IRC server version",
+          "prompt": "Which version of that IRC server is running?",
+          "check": { "answer_regex": "^3\\.2\\.8\\.1$" }
+        },
+        {
+          "key": "irc-class",
+          "title": "Name the weakness",
+          "prompt": "What kind of weakness does that release carry, inserted into its source distribution? (one word)",
+          "check": { "answer": ["backdoor", "backdoored", "trojan"] }
+        },
+        {
+          "key": "ftp-module",
+          "title": "Another way in",
+          "prompt": "ProFTPD 1.3.5 on port 21 ships a module that copies files on the server without logging in. Which module?",
+          "check": { "answer": ["mod_copy", "mod copy", "modcopy"] }
+        }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,9 @@
 version: 1
 name: metasploitable3-linux
 
+# Given by the CyberCTF launcher: this player's flag. Without it the development flag.
+inputs: [CTF_FLAG_MAIN]
+
 networks:
   lab: { cidr: 10.60.80.0/24 }
 
@@ -24,13 +27,15 @@ machines:
       - { port: 8080, name: continuum }
       - { port: 8181, name: sinatra }
     resources: { cpus: 2, memory_mb: 3072, disk_gb: 40 }
+    inputs: [CTF_FLAG_MAIN]
     vm:
       # Ubuntu 14.04 has no built-in OS name in Isoloom; the box is given explicitly.
       os: ubuntu-20.04
       image:
         vagrant: ubuntu/trusty64
         vagrant_version: "20191107.0.0"
-      provision: [provision/build.sh]
+      # flag.sh writes the player's flag to /root/flag.txt (root only), before the build reboots.
+      provision: [provision/flag.sh, provision/build.sh]
 
 # The machine reboots at the end of its build; the Java and Ruby services take a few minutes.
 checks:
@@ -48,4 +53,4 @@ checks:
 message: |
   Metasploitable 3 (Ubuntu 14.04) is up at {{ machines.ub1404.addresses.lab }}. Scan it: FTP, SSH,
   HTTP (Drupal, phpMyAdmin, a payroll app), Samba, CUPS, MySQL, UnrealIRCd, Apache Continuum and
-  more answer there. Fifteen card flags are hidden on the machine.
+  more answer there. Get root and read /root/flag.txt; fifteen card flags are hidden too.
