@@ -7,35 +7,43 @@ version: 1
 name: metasploitable3-linux
 
 # Given by the CyberCTF launcher: this player's flag. Without it the development flag.
-inputs: [CTF_FLAG_MAIN]
+inputs:
+  CTF_FLAG_MAIN: { description: "This player's flag, written to /root/flag.txt." }
 
 networks:
   lab: { cidr: 10.60.80.0/24 }
 
 machines:
   ub1404:
+    # Ubuntu 14.04 has no built-in OS name in Isoloom; the box is pinned in `overrides`.
+    os: ubuntu@20.04
     networks: { lab: 10 }
-    services:
-      - { port: 21, name: ftp }
-      - { port: 22, name: ssh }
-      - { port: 80, name: http, http: true }
-      - { port: 445, name: smb }
-      - { port: 631, name: cups }
-      - { port: 3306, name: mysql }
-      - { port: 3500, name: readme-app }
-      - { port: 6697, name: irc }
-      - { port: 8080, name: continuum }
-      - { port: 8181, name: sinatra }
+    ports:
+      ftp: 21
+      ssh: 22
+      http: { port: 80, protocol: http }
+      smb: 445
+      cups: 631
+      mysql: 3306
+      readme: 3500
+      irc: 6697
+      continuum: 8080
+      sinatra: 8181
     resources: { cpus: 2, memory_mb: 3072, disk_gb: 40 }
-    inputs: [CTF_FLAG_MAIN]
-    vm:
-      # Ubuntu 14.04 has no built-in OS name in Isoloom; the box is given explicitly.
-      os: ubuntu-20.04
-      image:
-        vagrant: ubuntu/trusty64
-        vagrant_version: "20191107.0.0"
-      # flag.sh writes the player's flag to /root/flag.txt (root only), before the build reboots.
-      provision: [provision/flag.sh, provision/build.sh]
+    # The player's flag lands at /root/flag.txt, root-only: a root shell is needed to read it.
+    # Placed before the build runs, as upstream's Chef cookbooks (build.sh) reboot the machine.
+    files:
+      - { path: /root/flag.txt, input: CTF_FLAG_MAIN, mode: "0400" }
+    app:
+      steps:
+        - run: provision/build.sh
+
+overrides:
+  vagrant:
+    machines:
+      ub1404:
+        box: ubuntu/trusty64
+        box_version: "20191107.0.0"
 
 # The machine reboots at the end of its build; the Java and Ruby services take a few minutes.
 checks:

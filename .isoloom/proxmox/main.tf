@@ -7,15 +7,8 @@ terraform {
   required_version = ">= 1.6"
   backend "local" {}
   required_providers {
-    proxmox = {
-      source  = "bpg/proxmox"
-      version = "~> 0.115"
-    }
-    # The controller's SSH key (environment-level provisioning).
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
+    proxmox = { source = "bpg/proxmox", version = "~> 0.115.0" }
+    tls     = { source = "hashicorp/tls", version = "~> 4.4.1" }
   }
 }
 
@@ -23,74 +16,93 @@ variable "proxmox_endpoint" {
   type        = string
   description = "https://<server>:8006/"
 }
+
 variable "proxmox_api_token" {
   type        = string
   default     = ""
   sensitive   = true
   description = "user@realm!name=secret; or use proxmox_username and proxmox_password"
 }
+
 variable "proxmox_username" {
   type    = string
   default = "root@pam"
 }
+
 variable "proxmox_password" {
   type      = string
   default   = ""
   sensitive = true
 }
+
 variable "proxmox_insecure" {
   type        = bool
   default     = true
   description = "Accept the server's self-signed certificate"
 }
+
 variable "proxmox_ssh_username" {
   type        = string
   default     = "root"
   description = "Uploading cloud-init snippets goes over SSH to the node"
 }
+
 variable "proxmox_ssh_private_key_file" {
   type    = string
   default = ""
 }
+
 variable "proxmox_ssh_address" {
   type        = string
   default     = ""
   description = "The node's SSH address, when the API reports one this machine can't reach"
 }
+
 variable "node" {
-  type    = string
-  default = "pve"
+  type        = string
+  description = "The Proxmox node the VMs go on (`pvesh get /nodes` lists them)"
+  validation {
+    condition     = var.node != ""
+    error_message = "Set `node` to the Proxmox node the lab's VMs go on (`pvesh get /nodes` lists them)."
+  }
 }
+
 variable "datastore" {
   type        = string
   default     = "local-lvm"
   description = "Where VM disks go"
 }
+
 variable "image_datastore" {
   type        = string
   default     = "local"
   description = "A datastore with 'iso' content, for cloud images"
 }
+
 variable "snippets_datastore" {
   type        = string
   default     = "local"
   description = "A datastore with 'snippets' content, for cloud-init"
 }
+
 variable "uplink_bridge" {
   type        = string
   default     = "vmbr0"
   description = "The bridge the router reaches the internet through"
 }
+
 variable "slot" {
   type        = number
   default     = 1
   description = "1 to 99, unique per environment on this server (SDN ids are short)"
 }
+
 variable "ssh_public_key" {
   type        = string
   default     = ""
   description = "Installed for the user `isoloom` on every VM"
 }
+
 variable "inputs" {
   type        = map(string)
   default     = {}
@@ -119,28 +131,28 @@ provider "proxmox" {
   }
 }
 
+# The project, written to /opt/isoloom in each machine that has steps; the `isoloom` user on every VM.
 locals {
-  zone = "iso${var.slot}"
-  # The project, written to /opt/isoloom in each machine that has steps.
-  root    = abspath("${path.module}/../..")
-  project = [for f in fileset(local.root, "**") : f if !startswith(f, ".git/") && !startswith(f, ".isoloom/") && !startswith(f, ".vagrant/")]
-  project_files = [for f in local.project : {
-    path     = "/opt/isoloom/${f}"
-    encoding = "b64"
-    content  = filebase64("${local.root}/${f}")
-  }]
-  users = var.ssh_public_key == "" ? [] : [{
-    name                = "isoloom"
-    sudo                = "ALL=(ALL) NOPASSWD:ALL"
-    shell               = "/bin/bash"
-    ssh_authorized_keys = [var.ssh_public_key]
-  }]
+  zone          = "iso${var.slot}"
+  root          = abspath("${path.module}/../..")
+  project_files = [for f in local.project_paths : { path = "/opt/isoloom/${f}", encoding = "b64", content = filebase64("${local.root}/${f}") }]
+  users         = var.ssh_public_key == "" ? [] : [{ name = "isoloom", sudo = "ALL=(ALL) NOPASSWD:ALL", shell = "/bin/bash", ssh_authorized_keys = [var.ssh_public_key] }]
 }
+
+# The environment's VMs and containers, together in a pool of their own.
+resource "proxmox_virtual_environment_pool" "env" {
+  pool_id = local.zone
+  comment = "Isoloom: metasploitable3-linux"
+}
+
+# Applies the SDN deletions on destroy, once the zone and its VNets are gone: every SDN object depends on it, so it goes last.
+resource "proxmox_sdn_applier" "finalizer" {}
 
 # The environment's networks: an SDN simple zone, a VNet per network.
 resource "proxmox_sdn_zone_simple" "env" {
-  id    = local.zone
-  nodes = [var.node]
+  id         = local.zone
+  nodes      = [var.node]
+  depends_on = [proxmox_sdn_applier.finalizer]
 }
 
 # Network `lab`: 10.60.80.0/24
@@ -149,28 +161,45 @@ resource "proxmox_sdn_vnet" "lab" {
   zone = proxmox_sdn_zone_simple.env.id
 }
 
+# Applies the SDN objects once created, and again whenever one of them is replaced.
 resource "proxmox_sdn_applier" "env" {
+  lifecycle {
+    replace_triggered_by = [proxmox_sdn_zone_simple.env, proxmox_sdn_vnet.lab]
+  }
   depends_on = [proxmox_sdn_vnet.lab]
 }
 
+# The `debian-12` cloud image, per environment: a shared file would go with whichever environment is destroyed first.
 resource "proxmox_download_file" "debian_12" {
-  node_name    = var.node
-  datastore_id = var.image_datastore
-  content_type = "iso"
-  url          = "https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
-  # Per environment: a shared file would go with whichever environment is destroyed first.
+  node_name           = var.node
+  datastore_id        = var.image_datastore
+  content_type        = "iso"
+  url                 = "https://cloud.debian.org/images/cloud/bookworm/20261015-2632/debian-12-genericcloud-amd64-20261015-2632.qcow2"
   file_name           = "iso${var.slot}-debian-12.img"
   overwrite_unmanaged = true
+  checksum            = "56c0bd55b6623f2739f377e983d2872e7b208d0cb9c3ba4e93d3f72929026da03637c598b3bd472b29998c31c8a4c17d8e6ae1c556852a8b83a66a09bf5c2b37"
+  checksum_algorithm  = "sha512"
 }
 
+# The `ubuntu-20.04` cloud image, per environment: a shared file would go with whichever environment is destroyed first.
 resource "proxmox_download_file" "ubuntu_20_04" {
-  node_name    = var.node
-  datastore_id = var.image_datastore
-  content_type = "iso"
-  url          = "https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img"
-  # Per environment: a shared file would go with whichever environment is destroyed first.
+  node_name           = var.node
+  datastore_id        = var.image_datastore
+  content_type        = "iso"
+  url                 = "https://cloud-images.ubuntu.com/focal/20250624/focal-server-cloudimg-amd64.img"
   file_name           = "iso${var.slot}-ubuntu-20.04.img"
   overwrite_unmanaged = true
+  checksum            = "18f2977d77dfea1b74aee14533bd21c34f789139e949c57023b7364894b7e5e9"
+  checksum_algorithm  = "sha256"
+}
+
+# Network `lab`, for the machines' firewall rules.
+resource "proxmox_virtual_environment_firewall_ipset" "lab" {
+  name    = "iso${var.slot}n0"
+  comment = "metasploitable3-linux: network lab"
+  cidr {
+    name = "10.60.80.0/24"
+  }
 }
 
 # The router: forwards between networks with the reach rules, and to the internet.
@@ -180,36 +209,64 @@ resource "proxmox_virtual_environment_file" "router" {
   content_type = "snippets"
   source_raw {
     file_name = "iso${var.slot}-router.yaml"
-    data = "#cloud-config\n${yamlencode({
+    data = format("#cloud-config\n%s", yamlencode({
       hostname = "isoloom-router"
       users    = local.users
       packages = ["nftables", "qemu-guest-agent"]
       write_files = [
-        { path = "/etc/systemd/network/10-wan.network", content = join("\n", ["[Match]", "MACAddress=${format("02:15:%02x:00:00:00", var.slot)}", "", "[Network]", "DHCP=yes"]) },
-        { path = "/etc/nftables.conf", content = "flush ruleset\ntable inet isoloom {\n  chain forward {\n    type filter hook forward priority 0; policy drop;\n    ct state established,related accept\n    ip saddr { 10.60.80.0/24 } ip daddr != { 10.60.80.0/24 } accept\n  }\n  chain prerouting {\n    type nat hook prerouting priority -100;\n  }\n  chain postrouting {\n    type nat hook postrouting priority 100;\n    ip saddr { 10.60.80.0/24 } ip daddr != { 10.60.80.0/24 } masquerade\n  }\n}\n" },
+        {
+          path    = "/etc/systemd/network/10-wan.network"
+          content = join("\n", ["[Match]", "MACAddress=${format("02:15:%02x:00:00:00", var.slot)}", "", "[Network]", "DHCP=yes"])
+        },
+        {
+          path    = "/etc/nftables.conf"
+          content = "flush ruleset\ntable inet isoloom {\n  chain forward {\n    type filter hook forward priority 0; policy drop;\n    ct state established,related accept\n    ip saddr { 10.60.80.0/24 } ip daddr != { 10.60.80.0/24 } accept\n  }\n  chain prerouting {\n    type nat hook prerouting priority -100;\n  }\n  chain postrouting {\n    type nat hook postrouting priority 100;\n    ip saddr { 10.60.80.0/24 } ip daddr != { 10.60.80.0/24 } masquerade\n  }\n}\n"
+        },
         { path = "/etc/sysctl.d/90-isoloom.conf", content = "net.ipv4.ip_forward=1\n" },
-        { path = "/etc/systemd/network/20-lab.network", content = join("\n", ["[Match]", "MACAddress=${format("02:15:%02x:01:%02x:00", var.slot, 0)}", "", "[Network]", "Address=10.60.80.254/24", "ConfigureWithoutCarrier=yes"]) }
+        {
+          path = "/etc/systemd/network/20-lab.network"
+          content = join("\n", [
+            "[Match]",
+            "MACAddress=${format("02:15:%02x:01:%02x:00", var.slot, 0)}",
+            "",
+            "[Network]",
+            "Address=10.60.80.254/24",
+            "ConfigureWithoutCarrier=yes"
+          ])
+        }
       ]
       runcmd = [
-        ["sysctl", "-p", "/etc/sysctl.d/90-isoloom.conf"],
-        ["systemctl", "enable", "systemd-networkd"],
-        ["systemctl", "restart", "systemd-networkd"],
-        ["systemctl", "enable", "--now", "nftables"],
-        ["nft", "-f", "/etc/nftables.conf"],
-        ["systemctl", "enable", "--now", "qemu-guest-agent"],
+        "sysctl -p /etc/sysctl.d/90-isoloom.conf",
+        "systemctl enable systemd-networkd",
+        "systemctl restart systemd-networkd",
+        "systemctl enable --now nftables",
+        "nft -f /etc/nftables.conf",
+        "systemctl enable --now qemu-guest-agent"
       ]
-    })}"
+    }))
   }
 }
 
+# The guest agent reports its uplink address (DHCP), for the published ports.
 resource "proxmox_virtual_environment_vm" "isoloom_router" {
   name      = "iso${var.slot}-router"
   node_name = var.node
   tags      = ["isoloom", "metasploitable3-linux"]
+  pool_id   = proxmox_virtual_environment_pool.env.pool_id
   on_boot   = false
-  # Its uplink address (DHCP), for the published ports.
   agent {
     enabled = true
+    timeout = "8m"
+    wait_for_ip {
+      ipv4 = true
+    }
+  }
+  stop_on_destroy = true
+  lifecycle {
+    postcondition {
+      condition     = length([for a in flatten(self.ipv4_addresses) : a if a != "127.0.0.1" && !contains(["10.60.80.254"], a)]) > 0
+      error_message = "VM `router` got no IPv4 address on its uplink bridge `${var.uplink_bridge}` within 8m: the bridge has no DHCP, or no DNS or internet to install qemu-guest-agent, which reports the address. Give it an uplink bridge with DHCP and internet (`uplink_bridge`)."
+    }
   }
   cpu {
     cores = 1
@@ -255,17 +312,20 @@ resource "proxmox_virtual_environment_file" "ub1404" {
   content_type = "snippets"
   source_raw {
     file_name = "iso${var.slot}-ub1404.yaml"
-    data = "#cloud-config\n${yamlencode({
+    data = format("#cloud-config\n%s", yamlencode({
       hostname    = "ub1404"
       users       = local.users
       packages    = ["nftables", "curl", "netcat-openbsd"]
-      write_files = concat(local.project_files, [{ path = "/etc/isoloom/inputs.env", permissions = "0600", content = join("\n", ["CTF_FLAG_MAIN=${lookup(var.inputs, "CTF_FLAG_MAIN", "")}"]) }])
+      write_files = local.project_files
       runcmd = [
-        ["sh", "-c", "cd /opt/isoloom && set -a; . /etc/isoloom/inputs.env; set +a; sh provision/flag.sh"],
-        ["sh", "-c", "cd /opt/isoloom && set -a; . /etc/isoloom/inputs.env; set +a; sh provision/build.sh"],
-        ["sh", "-c", "mkdir -p /var/lib/isoloom && echo ready > /var/lib/isoloom/ready"]
+        "mkdir -p /var/lib/isoloom",
+        "echo 'running: growing the disk' > /var/lib/isoloom/ready; sh -c 'set -e\npart_grow() {\n  dev=$(readlink -f \"$1\")\n  disk=/dev/$(lsblk -no PKNAME \"$dev\" | head -n1)\n  num=$(cat \"/sys/class/block/$(basename \"$dev\")/partition\")\n  if command -v growpart >/dev/null; then growpart \"$disk\" \"$num\" >/dev/null || true\n  else echo \", +\" | sfdisk --no-reread -N \"$num\" \"$disk\" >/dev/null 2>&1 && partx -u \"$disk\" || true; fi\n}\nfs_grow() { resize2fs \"$1\" >/dev/null 2>&1 || xfs_growfs / >/dev/null 2>&1 || true; }\nsrc=$(findmnt -n -o SOURCE /)\ncase \"$(lsblk -no TYPE \"$src\" | head -n1)\" in\n  lvm)\n    vg=$(lvs --noheadings -o vg_name \"$src\" | tr -d '\\'' '\\'')\n    for pv in $(pvs --noheadings -o pv_name -S vg_name=\"$vg\" | tr -d '\\'' '\\''); do part_grow \"$pv\"; pvresize \"$pv\" >/dev/null; done\n    lvextend -l +100%FREE \"$src\" >/dev/null 2>&1 || true\n    fs_grow \"$src\" ;;\n  part) part_grow \"$src\"; fs_grow \"$src\" ;;\nesac' || { echo 'failed: growing the disk' > /var/lib/isoloom/ready; exit 1; }",
+        "echo 'running: hosts file' > /var/lib/isoloom/ready; sh -c 'printf '\\''%s\\n'\\'' '\\''10.60.80.10 ub1404'\\'' | while IFS= read -r l; do grep -qxF \"$l\" /etc/hosts || printf '\\''%s\\n'\\'' \"$l\" >> /etc/hosts; done' || { echo 'failed: hosts file' > /var/lib/isoloom/ready; exit 1; }",
+        "echo 'running: waiting for its secrets' > /var/lib/isoloom/ready; sh -c 'set -e\nn=0; until [ -f /var/lib/isoloom/secrets/.delivered ]; do [ \"$n\" -gt 0 ] || echo '\\''ub1404: waiting for its secrets, which the runner (isothrum up) delivers'\\''; n=$((n+1)); if [ \"$n\" -gt 360 ]; then echo '\\''ub1404: its secrets never came; start the environment with the runner (isothrum up), which reads them from their stores and delivers them'\\'' >&2; exit 1; fi; sleep 5; done\nmkdir -p /etc/isoloom\ncat > /etc/isoloom/apply-secrets.sh <<'\\''APPLY-SECRETS'\\''\n#!/bin/sh\n# The machine'\\''s secrets, put in place\ninstall -D -o 0 -g 0 -m 0400 /var/lib/isoloom/secrets/input-ctf-flag-main '\\''/root/flag.txt'\\''\nexit 0\nAPPLY-SECRETS\nchmod +x /etc/isoloom/apply-secrets.sh\nif command -v systemctl >/dev/null; then\ncat > /etc/systemd/system/isoloom-apply-secrets.service <<'\\''UNIT'\\''\n[Unit]\nDescription=The machine'\\''s secrets, put in place\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nExecStart=-/etc/isoloom/apply-secrets.sh\n\n[Install]\nWantedBy=multi-user.target\nUNIT\nsystemctl daemon-reload\nsystemctl enable isoloom-apply-secrets.service\nsystemctl restart isoloom-apply-secrets.service\nelse\nmkdir -p /etc/local.d && ln -sf /etc/isoloom/apply-secrets.sh /etc/local.d/isoloom-apply-secrets.start\nrc-update add local default >/dev/null 2>&1 || true\n/etc/isoloom/apply-secrets.sh || true\nfi' || { echo 'failed: waiting for its secrets' > /var/lib/isoloom/ready; exit 1; }",
+        "echo 'running: provision/build.sh' > /var/lib/isoloom/ready; sh -c 'cd /opt/isoloom && sh -c '\\''sh provision/build.sh'\\''' || { echo 'failed: provision/build.sh' > /var/lib/isoloom/ready; exit 1; }",
+        "echo 'running: health check' > /var/lib/isoloom/ready; sh -c 'mkdir -p /var/lib/isoloom && echo ready > /var/lib/isoloom/ready' || { echo 'failed: health check' > /var/lib/isoloom/ready; exit 1; }"
       ]
-    })}"
+    }))
   }
 }
 
@@ -273,6 +333,7 @@ resource "proxmox_virtual_environment_vm" "ub1404" {
   name      = "iso${var.slot}-ub1404"
   node_name = var.node
   tags      = ["isoloom", "metasploitable3-linux"]
+  pool_id   = proxmox_virtual_environment_pool.env.pool_id
   on_boot   = false
   cpu {
     cores = 2
@@ -288,7 +349,8 @@ resource "proxmox_virtual_environment_vm" "ub1404" {
     size         = 40
   }
   network_device {
-    bridge = proxmox_sdn_vnet.lab.id
+    bridge   = proxmox_sdn_vnet.lab.id
+    firewall = true
   }
   initialization {
     datastore_id      = var.datastore
@@ -310,28 +372,78 @@ resource "proxmox_virtual_environment_vm" "ub1404" {
   depends_on = [proxmox_virtual_environment_vm.isoloom_router]
 }
 
-locals {
-  router_address = [for a in flatten(proxmox_virtual_environment_vm.isoloom_router.ipv4_addresses) : a if a != "127.0.0.1" && !contains(["10.60.80.254"], a)][0]
+# Machine `ub1404`'s firewall: what reaches it, outside the guest.
+resource "proxmox_virtual_environment_firewall_options" "ub1404" {
+  node_name     = var.node
+  vm_id         = proxmox_virtual_environment_vm.ub1404.vm_id
+  enabled       = true
+  input_policy  = "DROP"
+  output_policy = "ACCEPT"
 }
 
-output "address" {
+resource "proxmox_virtual_environment_firewall_rules" "ub1404" {
+  node_name = var.node
+  vm_id     = proxmox_virtual_environment_vm.ub1404.vm_id
+  rule {
+    type    = "in"
+    action  = "ACCEPT"
+    comment = "network lab"
+    source  = "+${proxmox_virtual_environment_firewall_ipset.lab.name}"
+  }
+}
+
+locals {
+  router_address = try([for a in flatten(proxmox_virtual_environment_vm.isoloom_router.ipv4_addresses) : a if a != "127.0.0.1" && !contains(["10.60.80.254"], a)][0], "")
+}
+
+# The router's uplink address: the lab's way in.
+output "ip" {
   value = local.router_address
 }
 
-# The machines, through the router: ssh -J isoloom@<address> isoloom@<machine>.
+# Each Linux machine's set-up progress (`isoloom-ready/1`: `running: <step>`, `failed: <step>`, `ready`).
+output "ready_file" {
+  value = "/var/lib/isoloom/ready"
+}
+
+# The machines, through the router: ssh -J isoloom@<ip> isoloom@<machine>.
 output "machines" {
-  value = {
-    "ub1404" = "10.60.80.10"
-  }
+  value = { ub1404 = "10.60.80.10" }
 }
 
 output "ssh_user" {
   value = "isoloom"
 }
 
-# The checks: each runner piped to its machine (ssh -J isoloom@<address> isoloom@<host> sh -s < <script>), or `isoloom test proxmox`.
+# The checks: each runner piped to its machine (ssh -J isoloom@<ip> isoloom@<host> sh -s < <script>).
 output "checks" {
   value = [
-    { position = "networks", machine = "ub1404", host = "10.60.80.10", user = "isoloom", script = ".isoloom/proxmox/checks/networks.sh" }
+    {
+      position = "networks"
+      machine  = "ub1404"
+      host     = "10.60.80.10"
+      user     = "isoloom"
+      script   = ".isoloom/proxmox/checks/networks.sh"
+    }
   ]
+}
+
+# The project's files the machines don't get: version control and the tools' state, and what
+# .isoloomignore at the project's root lists (gitignore-style: one pattern per line, `#` comments,
+# `!` brings a path back, a trailing `/` matches folders only, a `/` at the start or in the middle
+# anchors the pattern at the root; `*`, `?`, `[abc]`, `**`; the last pattern matching a path, or
+# a folder it is in, decides). Read as regular expressions, as the Vagrantfiles do.
+locals {
+  project_ignore_lines = [for l in split("\n", replace(try(file("${local.root}/.isoloomignore"), ""), "\r", "")) : trimspace(l)]
+  project_ignore_pats  = [for l in local.project_ignore_lines : { keep = startswith(l, "!"), pat = trimprefix(l, "!") } if l != "" && !startswith(l, "#")]
+  project_ignore_globs = [for r in local.project_ignore_pats : merge(r, { glob = trimsuffix(trimsuffix(trimsuffix(r.pat, "/"), "/**"), "/") })]
+  project_ignore = [for r in local.project_ignore_globs : {
+    keep = r.keep
+    re = format(r.glob == r.pat ? "^%s(/|$)" : "^%s/", replace(replace(replace(replace(replace(replace(replace(replace(
+      length(split("/", r.glob)) > 1 ? trimprefix(r.glob, "/") : "**/${r.glob}",
+    "/[.+^$(){}|\\\\]/", "\\$0"), "[!", "[^"), "**/", "\u0001"), "**", "\u0002"), "*", "[^/]*"), "?", "[^/]"), "\u0001", "(.*/)?"), "\u0002", ".*"))
+  } if r.glob != ""]
+  # Each file: whether it goes (the last matching pattern decides; none: it goes).
+  project_keep  = { for f in fileset(local.root, "**") : f => reverse(concat([true], [for r in local.project_ignore : r.keep if length(regexall(r.re, f)) > 0]))[0] }
+  project_paths = [for f, keep in local.project_keep : f if keep && length(regexall("^\\.isoloom|(^|/)\\.(git|vagrant|terraform)/", f)) == 0]
 }

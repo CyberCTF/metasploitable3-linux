@@ -1,6 +1,6 @@
 {
   "generated_by_isoloom": "from isoloom.yml; don't edit: change the spec and run `isoloom generate` (`isoloom check` fails when this file is out of date)",
-  "resolved_version": 1,
+  "resolved_version": 3,
   "name": "metasploitable3-linux",
   "instance": null,
   "inputs": [
@@ -25,6 +25,7 @@
       "shapes": [
         "vm"
       ],
+      "role": "target",
       "arch": "amd64",
       "os": "ubuntu-20.04",
       "windows": false,
@@ -34,72 +35,50 @@
       "docker_addresses": {
         "lab": "10.60.80.10"
       },
-      "services": [
-        {
+      "ports": {
+        "ftp": {
           "port": 21,
-          "name": "ftp",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "ssh": {
           "port": 22,
-          "name": "ssh",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "http": {
           "port": 80,
-          "name": "http",
-          "http": true,
-          "publish": null
+          "protocol": "http"
         },
-        {
+        "smb": {
           "port": 445,
-          "name": "smb",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "cups": {
           "port": 631,
-          "name": "cups",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "mysql": {
           "port": 3306,
-          "name": "mysql",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "readme": {
           "port": 3500,
-          "name": "readme-app",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "irc": {
           "port": 6697,
-          "name": "irc",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "continuum": {
           "port": 8080,
-          "name": "continuum",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         },
-        {
+        "sinatra": {
           "port": 8181,
-          "name": "sinatra",
-          "http": false,
-          "publish": null
+          "protocol": "tcp"
         }
-      ],
+      },
       "depends_on": [],
-      "inputs": [
-        "CTF_FLAG_MAIN"
-      ],
+      "inputs": [],
       "volumes": {},
       "resources": {
         "cpus": 2,
@@ -109,7 +88,9 @@
       "gateway_of": [],
       "routes": [],
       "default_gateway": null,
-      "offline": false
+      "offline": false,
+      "os_family": "ubuntu",
+      "os_version": "20.04"
     }
   },
   "start_order": [
@@ -120,6 +101,8 @@
   "groups": {},
   "router": null,
   "controller": {
+    "role": "infra",
+    "keep_running": false,
     "addresses": {
       "lab": "10.60.80.253"
     }
@@ -129,25 +112,28 @@
     "possible": [
       "vagrant",
       "proxmox",
+      "esxi",
       "cloud-vm"
     ],
     "generated": [
       "vagrant",
-      "proxmox"
+      "proxmox",
+      "esxi"
     ],
     "refused": {
-      "cloud-vm": "machine `ub1404`: no AWS image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04, Windows Server 2016 to 2025)"
+      "cloud-vm": "no cloud can run it (aws: machine `ub1404`: no AWS image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04, Windows Server 2016 to 2025); azure: machine `ub1404`: no Azure image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04, Windows Server 2016 to 2025); gcp: machine `ub1404`: no GCP image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04); digitalocean: machine `ub1404`: no DigitalOcean image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04); linode: machine `ub1404`: no Linode image for `ubuntu-20.04` yet (Debian 12/13, Ubuntu 22.04/24.04); oci: machine `ub1404`: no Oracle Cloud image for `ubuntu-20.04` yet (Ubuntu 22.04/24.04, Debian 12/13 on Ubuntu 24.04))"
     },
     "not_possible": {
-      "docker": "needs `docker:` on ub1404",
-      "hosted": "needs `docker:` on ub1404",
-      "docker-vm": "needs `docker:` on ub1404",
-      "cloud-docker": "needs `docker:` on ub1404",
-      "kubernetes": "needs `docker:` on ub1404",
+      "docker": "machines.ub1404.command: its steps install services, but no `service` step or `command` runs one in a container",
+      "hosted": "machines.ub1404.command: its steps install services, but no `service` step or `command` runs one in a container",
+      "docker-vm": "machines.ub1404.command: its steps install services, but no `service` step or `command` runs one in a container",
+      "cloud-docker": "machines.ub1404.command: its steps install services, but no `service` step or `command` runs one in a container",
+      "kubernetes": "machines.ub1404.command: its steps install services, but no `service` step or `command` runs one in a container",
       "hybrid": "only when some machines are containers and others are VMs",
-      "external": "needs `external:` on ub1404",
+      "external": "overrides.external.machines.ub1404: the external target reaches machines that exist already, and `ub1404` names no host",
       "cloud-services": "left out by `targets:`"
-    }
+    },
+    "clouds": {}
   },
   "checks": {
     "default_position": "networks",
